@@ -1,0 +1,30 @@
+works:
+  - name: project_stats
+    namespace: company
+    subsystem: project
+    url: https://somehost.com/api/metrics?access_token=UB7QccL8D
+    method: GET
+    every: 1m
+    delay: 2s
+    mapping:
+      users_total:
+        req: users_total
+        ptype: gauge
+        description: Number of registered users
+      users_transaq:
+        req: users_transaq
+        ptype: gauge
+        description: Number of users with transaqs
+      portfolios:
+        req: portfolios
+        ptype: gauge
+        description: Number of portfolios
+      portfolios_cost:
+        req: portfolios_cost
+        ptype: gauge
+        description: Portfolios cost (assets plus free money)
+      money:
+        req: users_money
+        ptype: gauge
+        description: Free money
+
