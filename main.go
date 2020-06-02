@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"time"
 	"os"
-	"io"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	"collector/config"
 	httpClient "collector/internal/http"
@@ -20,8 +21,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func startWorker(job config.Job, ctx context.Context, w io.Writer) {
-	log.SetOutput(w)
+func startWorker(job config.Job, ctx context.Context) {
 	failCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: job.Namespace,
 			Subsystem: job.Subsystem,
@@ -46,7 +46,7 @@ func startWorker(job config.Job, ctx context.Context, w io.Writer) {
 
 			data, err := httpClient.GetData(job.Url)
 			if err != nil {
-				log.Print(err)
+				log.Printf("cannot get data %s", err)
 				time.Sleep(5 * time.Second)
 				failCounter.WithLabelValues(job.Name).Inc()
 				continue
@@ -73,10 +73,32 @@ func main() {
 	addr := flag.String("l", ":8080", "Listen address")
 	flag.Parse()
 
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
+		signal.Stop(signalChan)
 		cancel()
+	}()
+
+	go func() {
+		for {
+			select {
+			case sig := <-signalChan:
+				switch sig {
+				case syscall.SIGTERM, syscall.SIGINT:
+					log.Println("Got SIGINT/SIGTERM, exiting")
+					cancel()
+					os.Exit(1)
+				case syscall.SIGHUP:
+					log.Println("Got SIGHUP, but it's WIP")
+				}
+			case <-ctx.Done():
+				log.Println("Done")
+				os.Exit(0)
+			}
+		}
 	}()
 
 	cdata, err := os.Open(*cfgPath)
@@ -90,9 +112,10 @@ func main() {
 		log.Fatalf("cannot init config: %s", err)
 	}
 
+	log.SetOutput(os.Stdout)
 	for _, j := range c.Jobs {
 		log.Printf("Work: %s, from %s every %s, with delay: %s\n", j.Name, j.Url, j.ScrapeInterval, j.ScrapeDelay)
-		go startWorker(j, ctx, os.Stdout)
+		go startWorker(j, ctx)
 	}
 
 	log.Printf("Run metrics server at %s", *addr)

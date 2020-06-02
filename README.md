@@ -127,14 +127,13 @@ Workflow for such problems can be more frequent requests to app. So we will see 
 In this case everything will be ok. I promise :)
 
 # TODO
-- [ ] graceful stop on SIGTERM/SIGINT
+- [ ] add files for linux init system
+- [ ] use ENV vars for config path
+- [ ] better logging with severity
+- [x] graceful stop on SIGTERM/SIGINT
 - [ ] support labels for metrics
-- [ ] fix first scrape bug (zero values)
 - [x] collect fails with counter (fails_counter{name="job_name"})
 - [ ] better examples
-- [ ] standard goapp layout
-- [ ] histogram support
-- [ ] summary support
 - Auth support:
   - [ ] basic
   - [ ] token
@@ -147,3 +146,5 @@ In this case everything will be ok. I promise :)
 - [ ] json data aggregation
 - [ ] db data scrape
 - [ ] take data from local files
+- [ ] histogram support
+- [ ] summary support
