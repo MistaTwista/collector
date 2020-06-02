@@ -127,6 +127,7 @@ Workflow for such problems can be more frequent requests to app. So we will see 
 In this case everything will be ok. I promise :)
 
 # TODO
+- [ ] graceful stop on SIGTERM/SIGINT
 - [ ] support labels for metrics
 - [ ] fix first scrape bug (zero values)
 - [x] collect fails with counter (fails_counter{name="job_name"})
@@ -141,6 +142,7 @@ In this case everything will be ok. I promise :)
 - [ ] custom user agent
 
 # Maybe
+- [ ] reload config on SIGHUP
 - [ ] cron rules for scraper
 - [ ] json data aggregation
 - [ ] db data scrape
