@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 	"os"
-	"sync"
+	"io"
 	"strconv"
 
 	"collector/config"
@@ -18,77 +20,82 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func startWorker(job config.Job, ctx context.Context, w io.Writer) {
+	log.SetOutput(w)
+	failCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: job.Namespace,
+			Subsystem: job.Subsystem,
+			Name: fmt.Sprintf("%s_fails_total", job.Name),
+			Help: "Scrape fail counter",
+		},
+		[]string{"name"},
+	)
+	prometheus.MustRegister(failCounter)
+
+	log.Printf("prepare metrics collectors for %s", job.Name)
+	metricMap := metrics.NewMetrics(job)
+	delay := job.ScrapeDelay
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.Tick(delay):
+			log.Printf("Run work %s\n", job.Name)
+			delay = job.ScrapeInterval
+
+			data, err := httpClient.GetData(job.Url)
+			if err != nil {
+				log.Print(err)
+				time.Sleep(5 * time.Second)
+				failCounter.WithLabelValues(job.Name).Inc()
+				continue
+			}
+
+			log.Println("data ready, parse")
+			for _, t := range job.Tasks {
+				val := gjson.GetBytes(data, t.Req)
+				f, err := strconv.ParseFloat(val.String(), 64)
+				if err != nil {
+					log.Println("cannot parse value", err)
+					failCounter.WithLabelValues(string(t.Name)).Inc()
+					continue
+				}
+
+				metricMap[t.Name].Set(f)
+			}
+		}
+	}
+}
+
 func main() {
 	cfgPath := flag.String("c", "config.yaml", "config file path")
 	addr := flag.String("l", ":8080", "Listen address")
 	flag.Parse()
 
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer func() {
+		cancel()
+	}()
+
 	cdata, err := os.Open(*cfgPath)
 	if err != nil {
-		log.Fatal("cannot read config", err)
+		log.Fatalf("cannot read config: %s", err)
 	}
 	defer cdata.Close()
 
-	c, err := config.Load(cdata)
+	c, err := config.Init(cdata)
 	if err != nil {
-		log.Printf("cannot load config: %s", err)
-		return
+		log.Fatalf("cannot init config: %s", err)
 	}
 
-	var wg sync.WaitGroup
-	for _, w := range c.Works {
-		log.Printf("Work: %s, %s from %s every %s with delay %s\n", w.Name, w.Method, w.Url, w.Every, w.Delay)
-		wg.Add(1)
-		go func(wrk config.Work) {
-			defer wg.Done()
-			failCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
-					Namespace: wrk.Namespace,
-					Subsystem: wrk.Subsystem,
-					Name: "fails_total",
-					Help: "Scrape fail counter",
-				},
-				[]string{"name"},
-			)
-			prometheus.MustRegister(failCounter)
-
-			log.Print("prepare metrics collectors")
-			metricMap := metrics.NewMetrics(wrk)
-
-			var once sync.Once
-			for {
-				once.Do(func() {
-					time.Sleep(wrk.Delay)
-				})
-				log.Printf("Run work %s", wrk.Name)
-
-				data, err := httpClient.GetData(wrk.Url)
-				if err != nil {
-					log.Print(err)
-					time.Sleep(5 * time.Second)
-					failCounter.WithLabelValues(wrk.Name).Inc()
-					continue
-				}
-
-				for _, m := range wrk.Mapping {
-					val := gjson.GetBytes(data, m.Req)
-					f, err := strconv.ParseFloat(val.String(), 64)
-					if err != nil {
-						log.Println("cannot parse value", err)
-						failCounter.WithLabelValues(string(m.Name)).Inc()
-						continue
-					}
-
-					metricMap[m.Name].Set(f)
-				}
-
-				time.Sleep(wrk.Every)
-			}
-		}(w)
+	for _, j := range c.Jobs {
+		log.Printf("Work: %s, from %s every %s, with delay: %s\n", j.Name, j.Url, j.ScrapeInterval, j.ScrapeDelay)
+		go startWorker(j, ctx, os.Stdout)
 	}
 
 	log.Printf("Run metrics server at %s", *addr)
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(*addr, nil))
-
-	wg.Wait()
 }

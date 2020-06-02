@@ -70,35 +70,37 @@ func (g *Gauge) Set(n float64) {
 	g.collector.Set(n)
 }
 
-func NewMetrics(wrk config.Work) map[config.MetricName]Metricable {
+func NewMetrics(job config.Job) map[config.MetricName]Metricable {
 	metricMap := make(map[config.MetricName]Metricable)
 
-	for _, d := range wrk.Mapping {
-		var g Metricable
-		switch d.Ptype {
+	for _, t := range job.Tasks {
+		var m Metricable
+		switch t.Type {
 		case config.Counter:
 			col := prometheus.NewCounter(prometheus.CounterOpts{
-				Namespace: wrk.Namespace,
-				Subsystem: wrk.Subsystem,
-				Name:      string(d.Name),
-				Help:      d.Description,
+				Namespace: job.Namespace,
+				Subsystem: job.Subsystem,
+				Name:      string(t.Name),
+				Help:      t.Description,
 			})
 			prometheus.MustRegister(col)
 
-			g = NewCounter(col)
+			m = NewCounter(col)
 		case config.Gauge:
 			col := prometheus.NewGauge(prometheus.GaugeOpts{
-				Namespace: wrk.Namespace,
-				Subsystem: wrk.Subsystem,
-				Name:      string(d.Name),
-				Help:      d.Description,
+				Namespace: job.Namespace,
+				Subsystem: job.Subsystem,
+				Name:      string(t.Name),
+				Help:      t.Description,
 			})
 			prometheus.MustRegister(col)
 
-			g = NewGauge(col)
+			m = NewGauge(col)
+		default:
+			panic("Use of bad task type")
 		}
 
-		metricMap[d.Name] = g
+		metricMap[t.Name] = m
 	}
 
 	return metricMap
